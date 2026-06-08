@@ -22,12 +22,9 @@ static const char *TAG = "block_detector";
 #define CHECK_INTERVAL_FAST_S 10
 #define MAX_FAILURES 3
 #define AP_CONNECT_WAIT_S 15
+#define NO_CONNECT_TIMEOUT_S 60
 
 extern bool ap_connect;
-
-extern uint8_t* mac;
-extern char* ssid;
-extern char* passwd;
 
 static bool try_connect(void) {
     int sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
@@ -84,31 +81,41 @@ static void rotate_mac_and_restart(void) {
 }
 
 void block_detector_task(void *pvParameter) {
-    ESP_LOGI(TAG, "Block detector started (check %s:%d)", CHECK_TARGET_HOST, CHECK_TARGET_PORT);
+    ESP_LOGI(TAG, "Block detector started");
 
     vTaskDelay(pdMS_TO_TICKS(AP_CONNECT_WAIT_S * 1000));
 
-    int failures = 0;
+    int tcp_failures = 0;
+    TickType_t last_connected_tick = 0;
 
     while (1) {
-        if (!ap_connect) {
-            vTaskDelay(pdMS_TO_TICKS(1000));
-            continue;
-        }
+        if (ap_connect) {
+            last_connected_tick = xTaskGetTickCount();
 
-        if (try_connect()) {
-            if (failures > 0) {
-                ESP_LOGI(TAG, "Connectivity restored after %d failures", failures);
+            if (try_connect()) {
+                if (tcp_failures > 0) {
+                    ESP_LOGI(TAG, "Connectivity restored after %d failures", tcp_failures);
+                }
+                tcp_failures = 0;
+                vTaskDelay(pdMS_TO_TICKS(CHECK_INTERVAL_SLOW_S * 1000));
+            } else {
+                tcp_failures++;
+                ESP_LOGW(TAG, "Connectivity failure %d/%d", tcp_failures, MAX_FAILURES);
+                if (tcp_failures >= MAX_FAILURES) {
+                    rotate_mac_and_restart();
+                }
+                vTaskDelay(pdMS_TO_TICKS(CHECK_INTERVAL_FAST_S * 1000));
             }
-            failures = 0;
-            vTaskDelay(pdMS_TO_TICKS(CHECK_INTERVAL_SLOW_S * 1000));
         } else {
-            failures++;
-            ESP_LOGW(TAG, "Connectivity failure %d/%d", failures, MAX_FAILURES);
-            if (failures >= MAX_FAILURES) {
+            TickType_t now = xTaskGetTickCount();
+            uint32_t elapsed_s = (now - last_connected_tick) * portTICK_PERIOD_MS / 1000;
+
+            if (elapsed_s >= NO_CONNECT_TIMEOUT_S) {
+                ESP_LOGW(TAG, "No connection for %ds — assuming blocked, rotating", elapsed_s);
                 rotate_mac_and_restart();
             }
-            vTaskDelay(pdMS_TO_TICKS(CHECK_INTERVAL_FAST_S * 1000));
+
+            vTaskDelay(pdMS_TO_TICKS(1000));
         }
     }
 }
