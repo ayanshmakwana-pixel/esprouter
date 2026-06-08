@@ -7,6 +7,7 @@
 #include "esp_random.h"
 #include "esp_wifi.h"
 #include "esp_system.h"
+#include "esp_efuse.h"
 #include "nvs.h"
 #include "nvs_flash.h"
 #include "lwip/sockets.h"
@@ -52,8 +53,12 @@ static bool try_connect(void) {
 }
 
 static void gen_random_mac(uint8_t *mac_out) {
-    mac_out[0] = 0x02;
-    for (int i = 1; i < 6; i++) {
+    uint8_t base_mac[6];
+    esp_efuse_mac_get_default(base_mac);
+    mac_out[0] = base_mac[0];
+    mac_out[1] = base_mac[1];
+    mac_out[2] = base_mac[2];
+    for (int i = 3; i < 6; i++) {
         mac_out[i] = (uint8_t)(esp_random() & 0xFF);
     }
 }
