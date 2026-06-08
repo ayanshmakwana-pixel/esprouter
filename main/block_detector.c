@@ -6,6 +6,7 @@
 #include "esp_log.h"
 #include "esp_random.h"
 #include "esp_wifi.h"
+#include "esp_system.h"
 #include "nvs.h"
 #include "nvs_flash.h"
 #include "lwip/sockets.h"
@@ -17,9 +18,10 @@ static const char *TAG = "block_detector";
 
 #define CHECK_TARGET_HOST "8.8.8.8"
 #define CHECK_TARGET_PORT 53
-#define CHECK_INTERVAL_S 300
+#define CHECK_INTERVAL_SLOW_S 300
+#define CHECK_INTERVAL_FAST_S 10
 #define MAX_FAILURES 3
-#define AP_CONNECT_WAIT_S 60
+#define AP_CONNECT_WAIT_S 15
 
 extern bool ap_connect;
 
@@ -70,28 +72,18 @@ static void save_mac_to_nvs(uint8_t *new_mac) {
     }
 }
 
-static void rotate_mac_and_reboot(void) {
-    ESP_LOGW(TAG, "Blocked detected! Rotating MAC and rebooting...");
+static void rotate_mac_and_restart(void) {
+    ESP_LOGW(TAG, "Blocked detected! Rotating MAC and restarting...");
 
     uint8_t new_mac[6];
     gen_random_mac(new_mac);
     save_mac_to_nvs(new_mac);
 
-    if (mac == NULL) {
-        mac = malloc(6);
-    }
-    memcpy(mac, new_mac, 6);
-
-    esp_wifi_set_mac(ESP_IF_WIFI_STA, new_mac);
-    esp_wifi_disconnect();
-    esp_wifi_connect();
-
-    ESP_LOGI(TAG, "Reconnected with new MAC. Continuing to monitor...");
+    esp_restart();
 }
 
 void block_detector_task(void *pvParameter) {
-    ESP_LOGI(TAG, "Block detector started (check %s:%d every %ds)",
-             CHECK_TARGET_HOST, CHECK_TARGET_PORT, CHECK_INTERVAL_S);
+    ESP_LOGI(TAG, "Block detector started (check %s:%d)", CHECK_TARGET_HOST, CHECK_TARGET_PORT);
 
     vTaskDelay(pdMS_TO_TICKS(AP_CONNECT_WAIT_S * 1000));
 
@@ -99,26 +91,24 @@ void block_detector_task(void *pvParameter) {
 
     while (1) {
         if (!ap_connect) {
-            ESP_LOGI(TAG, "Not connected yet, skipping check");
-            failures = 0;
-            vTaskDelay(pdMS_TO_TICKS(CHECK_INTERVAL_S * 1000));
+            vTaskDelay(pdMS_TO_TICKS(1000));
             continue;
         }
 
         if (try_connect()) {
+            if (failures > 0) {
+                ESP_LOGI(TAG, "Connectivity restored after %d failures", failures);
+            }
             failures = 0;
+            vTaskDelay(pdMS_TO_TICKS(CHECK_INTERVAL_SLOW_S * 1000));
         } else {
             failures++;
             ESP_LOGW(TAG, "Connectivity failure %d/%d", failures, MAX_FAILURES);
             if (failures >= MAX_FAILURES) {
-                rotate_mac_and_reboot();
-                failures = 0;
-                vTaskDelay(pdMS_TO_TICKS(AP_CONNECT_WAIT_S * 1000));
-                continue;
+                rotate_mac_and_restart();
             }
+            vTaskDelay(pdMS_TO_TICKS(CHECK_INTERVAL_FAST_S * 1000));
         }
-
-        vTaskDelay(pdMS_TO_TICKS(CHECK_INTERVAL_S * 1000));
     }
 }
 

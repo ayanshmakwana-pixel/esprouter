@@ -1160,20 +1160,11 @@ void app_main(void)
 
 #if !CONFIG_ETH_UPLINK
     get_config_param_blob("mac", &mac, 6);
-    if (mac == NULL) {
-        mac = malloc(6);
-        mac[0] = 0x02;
-        for (int i = 1; i < 6; i++) {
-            mac[i] = (uint8_t)(esp_random() & 0xFF);
-        }
-        ESP_LOGI(TAG, "No saved MAC, generated random: %02X:%02X:%02X:%02X:%02X:%02X",
+    if (mac != NULL) {
+        ESP_LOGI(TAG, "Loaded saved STA MAC: %02X:%02X:%02X:%02X:%02X:%02X",
                  mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
-        nvs_handle_t nvs;
-        if (nvs_open(PARAM_NAMESPACE, NVS_READWRITE, &nvs) == ESP_OK) {
-            nvs_set_blob(nvs, "mac", mac, 6);
-            nvs_commit(nvs);
-            nvs_close(nvs);
-        }
+    } else {
+        ESP_LOGI(TAG, "No saved STA MAC — using hardware MAC (not randomizing)");
     }
     get_config_param_str("ssid", &ssid);
     if (ssid == NULL) {
