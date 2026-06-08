@@ -63,6 +63,7 @@ static void register_set_hostname(void);
 #if !CONFIG_ETH_UPLINK
 static void register_set_sta(void);
 static void register_set_mac(void);
+static void register_reset_sta_mac(void);
 #else
 static void register_set_ap_mac_only(void);
 #endif
@@ -569,7 +570,7 @@ int set_sta_mac(int argc, char **argv) {
     return set_mac("mac", "STA", argc, argv);
 }
 
-static int reset_sta_mac(int argc, char **argv) {
+int reset_sta_mac(int argc, char **argv) {
     nvs_handle_t nvs;
     esp_err_t err = nvs_open(PARAM_NAMESPACE, NVS_READWRITE, &nvs);
     if (err != ESP_OK) return err;
