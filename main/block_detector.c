@@ -22,7 +22,7 @@ static const char *TAG = "block_detector";
 #define CHECK_INTERVAL_FAST_S 10
 #define MAX_FAILURES 3
 #define AP_CONNECT_WAIT_S 15
-#define NO_CONNECT_TIMEOUT_S 60
+#define NO_CONNECT_TIMEOUT_S 30
 
 extern bool ap_connect;
 
@@ -60,14 +60,23 @@ static void gen_random_mac(uint8_t *mac_out) {
 
 static void save_mac_to_nvs(uint8_t *new_mac) {
     nvs_handle_t nvs;
-    if (nvs_open(PARAM_NAMESPACE, NVS_READWRITE, &nvs) == ESP_OK) {
-        nvs_set_blob(nvs, "mac", new_mac, 6);
-        nvs_set_i32(nvs, "mac_locked", 1);
-        nvs_commit(nvs);
-        nvs_close(nvs);
-        ESP_LOGW(TAG, "Saved new STA MAC: %02X:%02X:%02X:%02X:%02X:%02X",
-                 new_mac[0], new_mac[1], new_mac[2], new_mac[3], new_mac[4], new_mac[5]);
+    esp_err_t err = nvs_open(PARAM_NAMESPACE, NVS_READWRITE, &nvs);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "NVS open failed: %s", esp_err_to_name(err));
+        return;
     }
+    err = nvs_set_blob(nvs, "mac", new_mac, 6);
+    if (err != ESP_OK) { ESP_LOGE(TAG, "nvs_set_blob(mac) failed: %s", esp_err_to_name(err)); nvs_close(nvs); return; }
+    err = nvs_set_i32(nvs, "mac_locked", 1);
+    if (err != ESP_OK) { ESP_LOGE(TAG, "nvs_set_i32(mac_locked) failed: %s", esp_err_to_name(err)); nvs_close(nvs); return; }
+    err = nvs_commit(nvs);
+    nvs_close(nvs);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "NVS commit failed: %s", esp_err_to_name(err));
+        return;
+    }
+    ESP_LOGW(TAG, "Saved new STA MAC: %02X:%02X:%02X:%02X:%02X:%02X",
+             new_mac[0], new_mac[1], new_mac[2], new_mac[3], new_mac[4], new_mac[5]);
 }
 
 static void rotate_mac_and_restart(void) {
@@ -81,7 +90,8 @@ static void rotate_mac_and_restart(void) {
 }
 
 void block_detector_task(void *pvParameter) {
-    ESP_LOGI(TAG, "Block detector started");
+    ESP_LOGI(TAG, "Block detector started (%ds init wait, %ds no-connect timeout)",
+             AP_CONNECT_WAIT_S, NO_CONNECT_TIMEOUT_S);
 
     vTaskDelay(pdMS_TO_TICKS(AP_CONNECT_WAIT_S * 1000));
 
@@ -121,5 +131,10 @@ void block_detector_task(void *pvParameter) {
 }
 
 void start_block_detector(void) {
-    xTaskCreate(block_detector_task, "block_detector", 4096, NULL, 5, NULL);
+    BaseType_t ret = xTaskCreate(block_detector_task, "block_detector", 4096, NULL, 5, NULL);
+    if (ret != pdPASS) {
+        ESP_LOGE(TAG, "Failed to create block_detector task (ret=%d)", (int)ret);
+    } else {
+        ESP_LOGI(TAG, "Block detector task created");
+    }
 }
