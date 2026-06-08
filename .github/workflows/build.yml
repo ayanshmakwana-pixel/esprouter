@@ -1,0 +1,31 @@
+name: Build ESP32 NAT Router
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install ESP-IDF
+        uses: espressif/esp-idf-action@v1
+        with:
+          esp_idf_version: v5.5.3
+          target: esp32
+
+      - name: Build firmware
+        run: idf.py build
+
+      - name: Upload firmware artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: esp32-nat-router-firmware
+          path: build/
+          compression-level: 0

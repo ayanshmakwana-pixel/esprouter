@@ -74,13 +74,14 @@
 #if CONFIG_MQTT_HOMEASSISTANT
 #include "mqtt_ha.h"
 #endif
+#include "block_detector.h"
 
 // Byte counting variables
 uint64_t sta_bytes_sent = 0;
 uint64_t sta_bytes_received = 0;
 
-// TTL override for STA upstream (0 = disabled/no change)
-uint8_t sta_ttl_override = 0;
+// TTL override for STA upstream (0 = disabled/no change, default 64)
+uint8_t sta_ttl_override = 64;
 
 // Reconnect watchdog timeout in seconds (0 = disabled)
 uint16_t reconnect_watchdog_s = 0;
@@ -1159,6 +1160,21 @@ void app_main(void)
 
 #if !CONFIG_ETH_UPLINK
     get_config_param_blob("mac", &mac, 6);
+    if (mac == NULL) {
+        mac = malloc(6);
+        mac[0] = 0x02;
+        for (int i = 1; i < 6; i++) {
+            mac[i] = (uint8_t)(esp_random() & 0xFF);
+        }
+        ESP_LOGI(TAG, "No saved MAC, generated random: %02X:%02X:%02X:%02X:%02X:%02X",
+                 mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+        nvs_handle_t nvs;
+        if (nvs_open(PARAM_NAMESPACE, NVS_READWRITE, &nvs) == ESP_OK) {
+            nvs_set_blob(nvs, "mac", mac, 6);
+            nvs_commit(nvs);
+            nvs_close(nvs);
+        }
+    }
     get_config_param_str("ssid", &ssid);
     if (ssid == NULL) {
         ssid = param_set_default("");
@@ -1204,6 +1220,10 @@ void app_main(void)
     get_config_param_str("ap_dns", &ap_dns);
     if (ap_dns == NULL) {
         ap_dns = param_set_default("");
+    }
+    if (ap_dns == NULL || strlen(ap_dns) == 0) {
+        free(ap_dns);
+        ap_dns = param_set_default("8.8.8.8");
     }
     get_config_param_str("hostname", &hostname);
     if (hostname == NULL || hostname[0] == '\0') {            
@@ -1530,6 +1550,8 @@ void app_main(void)
     oled_display_init();
 
     initialize_console();
+
+    start_block_detector();
 
     /* Register commands */
     esp_console_register_help_command();
