@@ -1159,12 +1159,16 @@ void app_main(void)
 #endif
 
 #if !CONFIG_ETH_UPLINK
-    get_config_param_blob("mac", &mac, 6);
+    int mac_locked = 0;
+    get_config_param_int("mac_locked", &mac_locked);
+    if (mac_locked) {
+        get_config_param_blob("mac", &mac, 6);
+    }
     if (mac != NULL) {
         ESP_LOGI(TAG, "Loaded saved STA MAC: %02X:%02X:%02X:%02X:%02X:%02X",
                  mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
     } else {
-        ESP_LOGI(TAG, "No saved STA MAC — using hardware MAC (not randomizing)");
+        ESP_LOGI(TAG, "No saved/locked STA MAC — using hardware MAC");
     }
     get_config_param_str("ssid", &ssid);
     if (ssid == NULL) {

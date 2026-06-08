@@ -65,6 +65,7 @@ static void save_mac_to_nvs(uint8_t *new_mac) {
     nvs_handle_t nvs;
     if (nvs_open(PARAM_NAMESPACE, NVS_READWRITE, &nvs) == ESP_OK) {
         nvs_set_blob(nvs, "mac", new_mac, 6);
+        nvs_set_i32(nvs, "mac_locked", 1);
         nvs_commit(nvs);
         nvs_close(nvs);
         ESP_LOGW(TAG, "Saved new STA MAC: %02X:%02X:%02X:%02X:%02X:%02X",

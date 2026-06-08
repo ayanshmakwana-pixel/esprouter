@@ -74,6 +74,7 @@ void preprocess_string(char* str);
 #if !CONFIG_ETH_UPLINK
 int set_sta(int argc, char **argv);
 int set_sta_mac(int argc, char **argv);
+int reset_sta_mac(int argc, char **argv);
 #endif
 int set_sta_static(int argc, char **argv);
 int set_ap(int argc, char **argv);

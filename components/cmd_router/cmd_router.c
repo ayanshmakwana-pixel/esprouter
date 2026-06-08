@@ -287,6 +287,7 @@ void register_router(void)
 #if !CONFIG_ETH_UPLINK
     register_set_sta();
     register_set_mac();
+    register_reset_sta_mac();
 #else
     register_set_ap_mac_only();
 #endif
@@ -553,6 +554,7 @@ esp_err_t set_mac(const char *key, const char *interface, int argc, char **argv)
     uint8_t mac[] = {set_mac_arg.mac0->ival[0], set_mac_arg.mac1->ival[0], set_mac_arg.mac2->ival[0], set_mac_arg.mac3->ival[0], set_mac_arg.mac4->ival[0], set_mac_arg.mac5->ival[0]};
     err = nvs_set_blob(nvs, key, mac, sizeof(mac));
     if (err == ESP_OK) {
+        nvs_set_i32(nvs, "mac_locked", 1);
         err = nvs_commit(nvs);
         if (err == ESP_OK) {
             ESP_LOGI(TAG, "%s mac address %02X:%02X:%02X:%02X:%02X:%02X stored.", interface, mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
@@ -565,6 +567,30 @@ esp_err_t set_mac(const char *key, const char *interface, int argc, char **argv)
 #if !CONFIG_ETH_UPLINK
 int set_sta_mac(int argc, char **argv) {
     return set_mac("mac", "STA", argc, argv);
+}
+
+static int reset_sta_mac(int argc, char **argv) {
+    nvs_handle_t nvs;
+    esp_err_t err = nvs_open(PARAM_NAMESPACE, NVS_READWRITE, &nvs);
+    if (err != ESP_OK) return err;
+    nvs_erase_key(nvs, "mac");
+    nvs_erase_key(nvs, "mac_locked");
+    nvs_commit(nvs);
+    nvs_close(nvs);
+    ESP_LOGW(TAG, "STA MAC reset — will use hardware MAC after restart");
+    return 0;
+}
+
+static void register_reset_sta_mac(void)
+{
+    const esp_console_cmd_t cmd = {
+        .command = "reset_sta_mac",
+        .help = "Clear saved STA MAC and use hardware MAC on next boot",
+        .hint = NULL,
+        .func = &reset_sta_mac,
+        .argtable = NULL
+    };
+    ESP_ERROR_CHECK( esp_console_cmd_register(&cmd) );
 }
 #endif
 
