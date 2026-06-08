@@ -7,7 +7,7 @@
 #include "esp_random.h"
 #include "esp_wifi.h"
 #include "esp_system.h"
-#include "esp_efuse.h"
+#include "esp_mac.h"
 #include "nvs.h"
 #include "nvs_flash.h"
 #include "lwip/sockets.h"
