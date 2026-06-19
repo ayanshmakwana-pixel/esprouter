@@ -26,6 +26,7 @@ static const char *TAG = "block_detector";
 #define NO_CONNECT_TIMEOUT_S 30
 
 extern bool ap_connect;
+extern char* ssid;
 
 static bool try_connect(void) {
     int sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
@@ -122,6 +123,11 @@ void block_detector_task(void *pvParameter) {
                 vTaskDelay(pdMS_TO_TICKS(CHECK_INTERVAL_FAST_S * 1000));
             }
         } else {
+            if (ssid == NULL || ssid[0] == '\0') {
+                vTaskDelay(pdMS_TO_TICKS(10000));
+                continue;
+            }
+
             TickType_t now = xTaskGetTickCount();
             uint32_t elapsed_s = (now - last_connected_tick) * portTICK_PERIOD_MS / 1000;
 
