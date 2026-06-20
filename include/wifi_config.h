@@ -43,7 +43,7 @@ extern char* ap_dns;
 extern char* hostname;
 
 extern uint16_t connect_count;
-extern bool ap_connect;
+extern volatile bool ap_connect;
 extern bool wifi_scan_active;
 
 #define DEFAULT_AP_IP "192.168.4.1"

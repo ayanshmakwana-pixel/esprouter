@@ -72,7 +72,7 @@ static char s_mac_str[13];     /* "AABBCCDDEEFF" */
 
 /* ---------- extern globals from main firmware ---------- */
 extern uint16_t connect_count;
-extern bool     ap_connect;
+extern volatile bool     ap_connect;
 extern struct dhcp_reservation_entry dhcp_reservations[];
 
 /* ================================================================

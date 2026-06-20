@@ -24,7 +24,7 @@
 #include "lwip/ip4_addr.h"
 
 /* Extern router globals (avoid including router_globals.h to prevent circular deps) */
-extern bool ap_connect;
+extern volatile bool ap_connect;
 extern uint16_t connect_count;
 extern uint32_t my_ip;
 extern uint32_t my_ap_ip;
