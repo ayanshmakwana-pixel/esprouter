@@ -11,7 +11,7 @@
 #include "nvs.h"
 #include "nvs_flash.h"
 #include "lwip/sockets.h"
-#include "lwip/netdb.h"
+#include "lwip/inet.h"
 #include "lwip/err.h"
 #include "router_config.h"
 
@@ -25,22 +25,32 @@ static const char *TAG = "block_detector";
 #define AP_CONNECT_WAIT_S 15
 #define NO_CONNECT_TIMEOUT_S 30
 
-extern bool ap_connect;
+extern volatile bool ap_connect;
+#if !CONFIG_ETH_UPLINK
 extern char* ssid;
+#endif
 
 static bool try_connect(void) {
     int sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     if (sock < 0) return false;
 
     struct timeval tv = { .tv_sec = 5, .tv_usec = 0 };
-    setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-    setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+    if (setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) != 0) {
+        ESP_LOGW(TAG, "Failed to set socket recv timeout");
+    }
+    if (setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv)) != 0) {
+        ESP_LOGW(TAG, "Failed to set socket send timeout");
+    }
 
     struct sockaddr_in addr = {
         .sin_family = AF_INET,
         .sin_port = htons(CHECK_TARGET_PORT),
     };
-    inet_pton(AF_INET, CHECK_TARGET_HOST, &addr.sin_addr);
+    if (inet_pton(AF_INET, CHECK_TARGET_HOST, &addr.sin_addr) != 1) {
+        ESP_LOGE(TAG, "Invalid address: %s", CHECK_TARGET_HOST);
+        closesocket(sock);
+        return false;
+    }
 
     int ret = connect(sock, (struct sockaddr *)&addr, sizeof(addr));
     closesocket(sock);
@@ -54,8 +64,14 @@ static bool try_connect(void) {
 }
 
 static void gen_random_mac(uint8_t *mac_out) {
-    uint8_t base_mac[6];
-    esp_efuse_mac_get_default(base_mac);
+    uint8_t base_mac[6] = {0};
+    esp_err_t err = esp_efuse_mac_get_default(base_mac);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to read efuse MAC (%s), using fallback OUI", esp_err_to_name(err));
+        base_mac[0] = 0x00;
+        base_mac[1] = 0x4B;
+        base_mac[2] = 0x12;
+    }
     mac_out[0] = base_mac[0];
     mac_out[1] = base_mac[1];
     mac_out[2] = base_mac[2];
@@ -123,13 +139,15 @@ void block_detector_task(void *pvParameter) {
                 vTaskDelay(pdMS_TO_TICKS(CHECK_INTERVAL_FAST_S * 1000));
             }
         } else {
+#if !CONFIG_ETH_UPLINK
             if (ssid == NULL || ssid[0] == '\0') {
                 vTaskDelay(pdMS_TO_TICKS(10000));
                 continue;
             }
+#endif
 
             TickType_t now = xTaskGetTickCount();
-            uint32_t elapsed_s = (now - last_connected_tick) * portTICK_PERIOD_MS / 1000;
+            uint32_t elapsed_s = (now - last_connected_tick) / configTICK_RATE_HZ;
 
             if (elapsed_s >= NO_CONNECT_TIMEOUT_S) {
                 ESP_LOGW(TAG, "No connection for %ds — assuming blocked, rotating", elapsed_s);

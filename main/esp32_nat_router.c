@@ -154,7 +154,7 @@ static uint32_t sta_reconnect_delay_ms = STA_RECONNECT_INITIAL_MS;
 
 /* Global vars */
 uint16_t connect_count = 0;
-bool ap_connect = false;
+volatile bool ap_connect = false;
 bool wifi_scan_active = false;
 bool has_static_ip = false;
 int led_gpio = -1;  // -1 means LED disabled (none)

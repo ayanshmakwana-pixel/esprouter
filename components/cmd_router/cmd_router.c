@@ -547,19 +547,36 @@ esp_err_t set_mac(const char *key, const char *interface, int argc, char **argv)
         return 1;
     }
 
+    int octets[6] = {
+        set_mac_arg.mac0->ival[0],
+        set_mac_arg.mac1->ival[0],
+        set_mac_arg.mac2->ival[0],
+        set_mac_arg.mac3->ival[0],
+        set_mac_arg.mac4->ival[0],
+        set_mac_arg.mac5->ival[0]
+    };
+    for (int i = 0; i < 6; i++) {
+        if (octets[i] < 0 || octets[i] > 255) {
+            printf("Octet %d must be 0-255 (got %d)\n", i + 1, octets[i]);
+            return 1;
+        }
+    }
+
     err = nvs_open(PARAM_NAMESPACE, NVS_READWRITE, &nvs);
     if (err != ESP_OK) {
         return err;
     }
 
-    uint8_t mac[] = {set_mac_arg.mac0->ival[0], set_mac_arg.mac1->ival[0], set_mac_arg.mac2->ival[0], set_mac_arg.mac3->ival[0], set_mac_arg.mac4->ival[0], set_mac_arg.mac5->ival[0]};
+    uint8_t mac[] = {(uint8_t)octets[0], (uint8_t)octets[1], (uint8_t)octets[2], (uint8_t)octets[3], (uint8_t)octets[4], (uint8_t)octets[5]};
     err = nvs_set_blob(nvs, key, mac, sizeof(mac));
     if (err == ESP_OK) {
-        nvs_set_i32(nvs, "mac_locked", 1);
+        err = nvs_set_i32(nvs, "mac_locked", 1);
+    }
+    if (err == ESP_OK) {
         err = nvs_commit(nvs);
-        if (err == ESP_OK) {
-            ESP_LOGI(TAG, "%s mac address %02X:%02X:%02X:%02X:%02X:%02X stored.", interface, mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
-        }
+    }
+    if (err == ESP_OK) {
+        ESP_LOGI(TAG, "%s mac address %02X:%02X:%02X:%02X:%02X:%02X stored.", interface, mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
     }
     nvs_close(nvs);
     return err;
@@ -574,10 +591,24 @@ int reset_sta_mac(int argc, char **argv) {
     nvs_handle_t nvs;
     esp_err_t err = nvs_open(PARAM_NAMESPACE, NVS_READWRITE, &nvs);
     if (err != ESP_OK) return err;
-    nvs_erase_key(nvs, "mac");
-    nvs_erase_key(nvs, "mac_locked");
-    nvs_commit(nvs);
+    err = nvs_erase_key(nvs, "mac");
+    if (err != ESP_OK && err != ESP_ERR_NVS_NOT_FOUND) {
+        ESP_LOGE(TAG, "Failed to erase mac from NVS: %s", esp_err_to_name(err));
+        nvs_close(nvs);
+        return err;
+    }
+    err = nvs_erase_key(nvs, "mac_locked");
+    if (err != ESP_OK && err != ESP_ERR_NVS_NOT_FOUND) {
+        ESP_LOGE(TAG, "Failed to erase mac_locked from NVS: %s", esp_err_to_name(err));
+        nvs_close(nvs);
+        return err;
+    }
+    err = nvs_commit(nvs);
     nvs_close(nvs);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "NVS commit failed: %s", esp_err_to_name(err));
+        return err;
+    }
     ESP_LOGW(TAG, "STA MAC reset — will use hardware MAC after restart");
     return 0;
 }
