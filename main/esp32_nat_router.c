@@ -437,7 +437,9 @@ static void eth_event_handler(void* arg, esp_event_base_t event_base,
         init_sntp_if_needed();
         syslog_notify_connected();
         if (vpn_enabled) {
-            xTaskCreate(vpn_connect_task, "vpn_connect", 4096, NULL, 5, NULL);
+            if (xTaskCreate(vpn_connect_task, "vpn_connect", 4096, NULL, 5, NULL) != pdPASS) {
+                ESP_LOGE(TAG, "Failed to create VPN connect task");
+            }
         }
         xEventGroupSetBits(wifi_event_group, WIFI_CONNECTED_BIT);
     }
@@ -690,7 +692,9 @@ static void wifi_event_handler(void* arg, esp_event_base_t event_base,
 
         // Start VPN connection if enabled
         if (vpn_enabled) {
-            xTaskCreate(vpn_connect_task, "vpn_connect", 4096, NULL, 5, NULL);
+            if (xTaskCreate(vpn_connect_task, "vpn_connect", 4096, NULL, 5, NULL) != pdPASS) {
+                ESP_LOGE(TAG, "Failed to create VPN connect task");
+            }
         }
 
         /* Re-enable NAPT here in case the AP cycled (channel change from
@@ -1119,7 +1123,7 @@ char* param_set_default(const char* def_val) {
     char * retval = malloc(strlen(def_val)+1);
     if (retval == NULL) {
         ESP_LOGE(TAG, "Failed to allocate memory for default parameter");
-        return NULL;
+        abort();
     }
     strcpy(retval, def_val);
     return retval;
@@ -1483,7 +1487,9 @@ void app_main(void)
     }
 
     pthread_t t1;
-    pthread_create(&t1, NULL, led_status_thread, NULL);
+    if (pthread_create(&t1, NULL, led_status_thread, NULL) != 0) {
+        ESP_LOGE(TAG, "Failed to create LED status thread");
+    }
 
     if (!ap_disabled) {
         if (ap_nat_enabled) {

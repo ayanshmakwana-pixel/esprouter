@@ -35,6 +35,8 @@
 #include "mbedtls/sha256.h"
 #include "esp_random.h"
 
+#include "freertos/semphr.h"
+
 #include "driver/gpio.h"
 #include "soc/soc_caps.h"
 #if SOC_TEMP_SENSOR_SUPPORTED
@@ -58,6 +60,8 @@ extern void    web_ui_set_bind(uint8_t bind);
 #endif
 
 static const char *TAG = "cmd_router";
+
+static SemaphoreHandle_t arg_mutex = NULL;
 
 static void register_set_hostname(void);
 #if !CONFIG_ETH_UPLINK
@@ -191,6 +195,12 @@ esp_err_t get_config_param_str(char* name, char** param)
                 return ESP_ERR_NO_MEM;
             }
             err = nvs_get_str(nvs, name, *param, &len);
+            if (err != ESP_OK) {
+                free(*param);
+                *param = NULL;
+                nvs_close(nvs);
+                return err;
+            }
             ESP_LOGI(TAG, "%s %s", name, *param);
         } else {
             return err;
@@ -238,6 +248,12 @@ esp_err_t get_config_param_blob(char* name, uint8_t** blob, size_t blob_len)
                 return ESP_ERR_NO_MEM;
             }
             err = nvs_get_blob(nvs, name, *blob, &len);
+            if (err != ESP_OK) {
+                free(*blob);
+                *blob = NULL;
+                nvs_close(nvs);
+                return err;
+            }
             ESP_LOGI(TAG, "%s: %d", name, len);
         } else {
             return err;
@@ -284,6 +300,9 @@ esp_err_t set_config_param_blob(const char* name, const void* data, size_t len)
 
 void register_router(void)
 {
+    if (arg_mutex == NULL) {
+        arg_mutex = xSemaphoreCreateMutex();
+    }
     register_show();
 #if !CONFIG_ETH_UPLINK
     register_set_sta();
@@ -358,17 +377,17 @@ int set_sta(int argc, char **argv)
     esp_err_t err;
     nvs_handle_t nvs;
 
+    if (arg_mutex) xSemaphoreTake(arg_mutex, portMAX_DELAY);
     int nerrors = arg_parse(argc, argv, (void **) &set_sta_arg);
     if (nerrors != 0) {
         arg_print_errors(stderr, set_sta_arg.end, argv[0]);
+        if (arg_mutex) xSemaphoreGive(arg_mutex);
         return 1;
     }
 
-    preprocess_string((char*)set_sta_arg.ssid->sval[0]);
-    preprocess_string((char*)set_sta_arg.password->sval[0]);
-
     err = nvs_open(PARAM_NAMESPACE, NVS_READWRITE, &nvs);
     if (err != ESP_OK) {
+        if (arg_mutex) xSemaphoreGive(arg_mutex);
         return err;
     }
 
@@ -394,23 +413,23 @@ int set_sta(int argc, char **argv)
                 if (err == ESP_OK) {
                     // Save WPA2-Enterprise settings
                     if (set_sta_arg.eap_method->count > 0) {
-                        nvs_set_i32(nvs, "eap_method", set_sta_arg.eap_method->ival[0]);
-                        eap_method = set_sta_arg.eap_method->ival[0];
+                        err = nvs_set_i32(nvs, "eap_method", set_sta_arg.eap_method->ival[0]);
+                        if (err == ESP_OK) eap_method = set_sta_arg.eap_method->ival[0];
                     }
-                    if (set_sta_arg.ttls_phase2->count > 0) {
-                        nvs_set_i32(nvs, "ttls_phase2", set_sta_arg.ttls_phase2->ival[0]);
-                        ttls_phase2 = set_sta_arg.ttls_phase2->ival[0];
+                    if (err == ESP_OK && set_sta_arg.ttls_phase2->count > 0) {
+                        err = nvs_set_i32(nvs, "ttls_phase2", set_sta_arg.ttls_phase2->ival[0]);
+                        if (err == ESP_OK) ttls_phase2 = set_sta_arg.ttls_phase2->ival[0];
                     }
-                    if (set_sta_arg.cert_bundle->count > 0) {
-                        nvs_set_i32(nvs, "cert_bundle", set_sta_arg.cert_bundle->ival[0]);
-                        use_cert_bundle = set_sta_arg.cert_bundle->ival[0];
+                    if (err == ESP_OK && set_sta_arg.cert_bundle->count > 0) {
+                        err = nvs_set_i32(nvs, "cert_bundle", set_sta_arg.cert_bundle->ival[0]);
+                        if (err == ESP_OK) use_cert_bundle = set_sta_arg.cert_bundle->ival[0];
                     }
-                    if (set_sta_arg.no_time_check->count > 0) {
-                        nvs_set_i32(nvs, "no_time_chk", set_sta_arg.no_time_check->ival[0]);
-                        disable_time_check = set_sta_arg.no_time_check->ival[0];
+                    if (err == ESP_OK && set_sta_arg.no_time_check->count > 0) {
+                        err = nvs_set_i32(nvs, "no_time_chk", set_sta_arg.no_time_check->ival[0]);
+                        if (err == ESP_OK) disable_time_check = set_sta_arg.no_time_check->ival[0];
                     }
 
-                    err = nvs_commit(nvs);
+                    if (err == ESP_OK) err = nvs_commit(nvs);
                     if (err == ESP_OK) {
                         ESP_LOGI(TAG, "STA settings %s/%s stored.", set_sta_arg.ssid->sval[0], set_sta_arg.password->sval[0]);
                     }
@@ -419,6 +438,7 @@ int set_sta(int argc, char **argv)
         }
     }
     nvs_close(nvs);
+    if (arg_mutex) xSemaphoreGive(arg_mutex);
     return err;
 }
 
@@ -477,9 +497,11 @@ int set_sta_static(int argc, char **argv)
         return err;
     }
 
+    if (arg_mutex) xSemaphoreTake(arg_mutex, portMAX_DELAY);
     int nerrors = arg_parse(argc, argv, (void **) &set_sta_static_arg);
     if (nerrors != 0) {
         arg_print_errors(stderr, set_sta_static_arg.end, argv[0]);
+        if (arg_mutex) xSemaphoreGive(arg_mutex);
         return 1;
     }
 
@@ -489,6 +511,7 @@ int set_sta_static(int argc, char **argv)
 
     err = nvs_open(PARAM_NAMESPACE, NVS_READWRITE, &nvs);
     if (err != ESP_OK) {
+        if (arg_mutex) xSemaphoreGive(arg_mutex);
         return err;
     }
 
@@ -505,6 +528,7 @@ int set_sta_static(int argc, char **argv)
             }
         }
     }
+    if (arg_mutex) xSemaphoreGive(arg_mutex);
     nvs_close(nvs);
     return err;
 }
@@ -541,9 +565,11 @@ esp_err_t set_mac(const char *key, const char *interface, int argc, char **argv)
     esp_err_t err;
     nvs_handle_t nvs;
 
+    if (arg_mutex) xSemaphoreTake(arg_mutex, portMAX_DELAY);
     int nerrors = arg_parse(argc, argv, (void **) &set_mac_arg);
     if (nerrors != 0) {
         arg_print_errors(stderr, set_mac_arg.end, argv[0]);
+        if (arg_mutex) xSemaphoreGive(arg_mutex);
         return 1;
     }
 
@@ -555,6 +581,7 @@ esp_err_t set_mac(const char *key, const char *interface, int argc, char **argv)
         set_mac_arg.mac4->ival[0],
         set_mac_arg.mac5->ival[0]
     };
+    if (arg_mutex) xSemaphoreGive(arg_mutex);
     for (int i = 0; i < 6; i++) {
         if (octets[i] < 0 || octets[i] > 255) {
             printf("Octet %d must be 0-255 (got %d)\n", i + 1, octets[i]);
@@ -700,9 +727,6 @@ int set_ap(int argc, char **argv)
         return 1;
     }
 
-    preprocess_string((char*)set_ap_args.ssid->sval[0]);
-    preprocess_string((char*)set_ap_args.password->sval[0]);
-
     if (strlen(set_ap_args.password->sval[0]) < 8) {
         printf("AP will be open (no passwd needed).\n");
     }
@@ -823,9 +847,11 @@ static int set_ap_dns(int argc, char **argv)
 {
     esp_err_t err;
 
+    if (arg_mutex) xSemaphoreTake(arg_mutex, portMAX_DELAY);
     int nerrors = arg_parse(argc, argv, (void **) &set_ap_dns_arg);
     if (nerrors != 0) {
         arg_print_errors(stderr, set_ap_dns_arg.end, argv[0]);
+        if (arg_mutex) xSemaphoreGive(arg_mutex);
         return 1;
     }
 
@@ -841,9 +867,14 @@ static int set_ap_dns(int argc, char **argv)
         printf("Restart to apply.\n");
     }
 
-    // Update global
-    free(ap_dns);
-    ap_dns = strdup(set_ap_dns_arg.dns_str->sval[0]);
+    if (err == ESP_OK) {
+        free(ap_dns);
+        ap_dns = strdup(set_ap_dns_arg.dns_str->sval[0]);
+        if (ap_dns == NULL) {
+            ESP_LOGE(TAG, "Failed to allocate DNS string");
+        }
+    }
+    if (arg_mutex) xSemaphoreGive(arg_mutex);
 
     return err;
 }
@@ -911,6 +942,9 @@ static int set_hostname_cmd(int argc, char **argv)
 
     free(hostname);
     hostname = strdup(name);
+    if (hostname == NULL) {
+        ESP_LOGE(TAG, "Failed to allocate hostname string");
+    }
 
     return err;
 }
